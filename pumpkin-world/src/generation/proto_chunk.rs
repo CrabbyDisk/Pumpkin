@@ -15,7 +15,7 @@ use pumpkin_util::{
 use crate::generation::noise::perlin::DoublePerlinNoiseSampler;
 use crate::generation::structure::placement::StructurePlacementCalculator;
 use crate::generation::structure::structures::StructurePosition;
-use crate::generation::structure::{STRUCTURE_SETS, STRUCTURS, Structure, StructureType};
+use crate::generation::structure::{STRUCTURE_SETS, STRUCTURES, Structure, StructureType};
 use crate::{
     BlockStateId,
     biome::{BiomeSupplier, MultiNoiseBiomeSupplier, end::TheEndBiomeSupplier, hash_seed},
@@ -737,6 +737,7 @@ impl<'a> ProtoChunk<'a> {
             Xoroshiro::get_population_seed(self.random_config.seed, block_pos.0.x, block_pos.0.z);
 
         for (_structure, (pos, stype)) in self.structure_starts.clone() {
+            dbg!("generating structure");
             stype.generate(pos.clone(), self);
         }
 
@@ -765,7 +766,7 @@ impl<'a> ProtoChunk<'a> {
                 seed: self.random_config.seed as i64,
             };
             // for structure in &set.structures {
-            //     let start = self.structure_starts.get(STRUCTURS.get(name).unwrap());
+            //     let start = self.structure_starts.get(STRUCTURES.get(name).unwrap());
             // }
             if !set.placement.should_generate(calculator, self.chunk_pos) {
                 continue; // ??
@@ -779,7 +780,7 @@ impl<'a> ProtoChunk<'a> {
                     && !position.generator.pieces_positions.is_empty()
                 {
                     self.structure_starts.insert(
-                        STRUCTURS.get(name).unwrap().clone(),
+                        STRUCTURES.get(name).unwrap().clone(),
                         (position, set.structures[0].structure.clone()),
                     );
                 }
