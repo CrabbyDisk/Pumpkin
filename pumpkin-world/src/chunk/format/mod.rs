@@ -183,6 +183,7 @@ impl ChunkData {
             section,
             heightmap: chunk_data.heightmaps,
             position,
+            status: chunk_data.status,
             // This chunk is read from disk, so it has not been modified
             dirty: false,
             block_ticks: ChunkTickScheduler::from_vec(&chunk_data.block_ticks),

@@ -1,6 +1,11 @@
+use std::collections::VecDeque;
+use std::iter;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use crossbeam::channel::{Receiver, Sender};
+use crossbeam::deque;
+use itertools::multizip;
 use pumpkin_data::BlockState;
 use pumpkin_data::noise_router::{
     END_BASE_NOISE_ROUTER, NETHER_BASE_NOISE_ROUTER, OVERWORLD_BASE_NOISE_ROUTER,
@@ -13,7 +18,7 @@ use super::{
 };
 use crate::chunk::format::LightContainer;
 use crate::generation::proto_chunk::TerrainCache;
-use crate::level::Level;
+use crate::level::{ChunkRequest, Level};
 use crate::world::BlockRegistryExt;
 use crate::{chunk::ChunkLight, dimension::Dimension};
 use crate::{
@@ -28,14 +33,30 @@ pub trait GeneratorInit {
     fn new(seed: Seed, dimension: Dimension) -> Self;
 }
 
-#[async_trait]
-pub trait WorldGenerator: Sync + Send {
-    fn generate_chunk(
-        &self,
-        level: &Arc<Level>,
-        block_registry: &dyn BlockRegistryExt,
-        at: &Vector2<i32>,
-    ) -> ChunkData;
+struct LoadRequest {
+    origin: i32,
+    radius: u32,
+}
+impl IntoIterator for LoadRequest {
+    type Item = Vector2<i32>;
+
+    type IntoIter = iter::Empty<Vector2<i32>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        todo!()
+    }
+}
+impl LoadRequest {
+    fn with_padding(self, padding: u32) -> Self {
+        Self {
+            origin: self.origin,
+            radius: self.radius + padding,
+        }
+    }
+}
+
+pub trait WorldGenerator {
+    fn request_load(&self, request: LoadRequest);
 }
 
 pub struct VanillaGenerator {
@@ -75,12 +96,7 @@ impl GeneratorInit for VanillaGenerator {
 }
 
 impl WorldGenerator for VanillaGenerator {
-    fn generate_chunk(
-        &self,
-        level: &Arc<Level>,
-        block_registry: &dyn BlockRegistryExt,
-        at: &Vector2<i32>,
-    ) -> ChunkData {
+    fn request_load(&self, requested: LoadRequest) {
         let generation_settings = gen_settings_from_dimension(&self.dimension);
 
         let height: usize = match self.dimension {
@@ -91,18 +107,24 @@ impl WorldGenerator for VanillaGenerator {
         let sections = (0..sub_chunks).map(|_| SubChunk::default()).collect();
         let mut sections = ChunkSections::new(sections, generation_settings.shape.min_y as i32);
 
-        let mut proto_chunk = ProtoChunk::new(
-            *at,
-            &self.base_router,
-            &self.random_config,
-            generation_settings,
-            &self.terrain_cache,
-            self.default_block,
+        // These are just vanilla constants
+        let light_radius = requested.with_padding(1); //Light needs to propagate to adjacent chunks
+        let carver_radius = light_radius.with_padding(1); // Terrain shape needs to be complete in order to generate features
+        let biome_radius = carver_radius.with_padding(1); // Ishland couldn't find a reason but vanilla does this so ig yes
+        let structure_starts_radius = biome_radius.with_padding(8); // Chunks need to store a reference to nearby structures
+
+        multizip((
+            requested,
+            light_radius,
+            carver_radius,
+            biome_radius,
+            structure_starts_radius,
+        ))
+        .for_each(
+            |(requested, light_radius, carver_radius, biome_radius, structure_starts_radius)| {
+                todo!();
+            },
         );
-        proto_chunk.populate_biomes(self.dimension);
-        proto_chunk.populate_noise();
-        proto_chunk.build_surface();
-        proto_chunk.generate_features_and_structure(level, block_registry);
 
         for y in 0..biome_coords::from_block(generation_settings.shape.height) {
             let relative_y = y as usize;
@@ -136,22 +158,35 @@ impl WorldGenerator for VanillaGenerator {
                 }
             }
         }
-        ChunkData {
-            light_engine: ChunkLight {
-                sky_light: (0..sections.sections.len() + 2)
-                    .map(|_| LightContainer::new_filled(15))
-                    .collect(),
-                block_light: (0..sections.sections.len() + 2)
-                    .map(|_| LightContainer::new_empty(15))
-                    .collect(),
-            },
-            section: sections,
-            heightmap: Default::default(),
-            position: *at,
-            dirty: true,
-            block_ticks: Default::default(),
-            fluid_ticks: Default::default(),
-            block_entities: Default::default(),
-        }
     }
+}
+
+/// Call in a new thread
+fn initialize_generator(rx: Receiver<LoadRequest>) {
+    let mut queue = VecDeque::new();
+
+    let mut poll_countdown = 0;
+    loop {
+        if poll_countdown == 0 {
+            while let Ok(task) = rx.try_recv() {
+                queue.push_front(task.into_iter());
+            }
+            poll_countdown = queue.len(); // Or set it to a constant
+        }
+        if let Some(mut task) = queue.pop_back() {
+            if let Some(work) = task.next() {
+                // Do stuff with y
+                queue.push_front(task);
+            }
+        } else {
+            // The task queue is empty
+            let Ok(value) = rx.recv() else { return }; // Blocks
+            queue.push_front(value.into_iter());
+        }
+        poll_countdown -= 1;
+    }
+}
+
+fn initialize_pyramid(pos: Vector2<i32>) {
+    todo!()
 }
