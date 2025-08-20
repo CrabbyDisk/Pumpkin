@@ -257,7 +257,7 @@ impl Iterator for RingIterator {
                 // left edge (bottom → top)
                 Vector2::new(-r, r - (i - 3 * side))
             }
-            _ => unreachable!(),
+            _ => return None,
         };
 
         self.index += 1;
