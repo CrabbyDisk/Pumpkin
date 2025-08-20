@@ -144,6 +144,11 @@ struct LoadRequest {
     origin: i32,
     radius: u32,
 }
+
+const LIGHT_RADIUS: u32 = 1;
+const CARVER_RADIUS: u32 = LIGHT_RADIUS + 1;
+const BIOME_RADIUS: u32 = CARVER_RADIUS + 1;
+const STRUCTURE_STARTS_RADIUS: u32 = CARVER_RADIUS + 8;
 impl IntoIterator for LoadRequest {
     type Item = (
         RingIterator,
@@ -157,22 +162,41 @@ impl IntoIterator for LoadRequest {
 
     fn into_iter(self) -> Self::IntoIter {
         // These are just vanilla constants
-        let light_radius = self.with_padding(1); //Light needs to propagate to adjacent chunks
-        let carver_radius = light_radius.with_padding(1); // Terrain shape needs to be complete in order to generate features
-        let biome_radius = carver_radius.with_padding(1); // Ishland couldn't find a reason but vanilla does this so ig yes
-        let structure_starts_radius = biome_radius.with_padding(8); // Chunks need to store a reference to nearby structures
-        let ring = self.into();
+        let ring = self.with_radius(0).into();
+        let light_radius = self.with_radius(LIGHT_RADIUS).into();
+        let carver_radius = self.with_radius(CARVER_RADIUS).into(); // Terrain shape needs to be complete in order to generate features
+        let biome_radius = self.with_radius(BIOME_RADIUS).into(); // Ishland couldn't find a reason but vanilla does this so ig yes
+        let structure_starts_radius = self.with_radius(STRUCTURE_STARTS_RADIUS).into(); // Chunks need to store a reference to nearby structures
 
-        repeat_n((ring, ring, ring, ring, ring), self.radius as usize)
-            .enumerate()
-            .map(|(i, el)| todo!())
+        repeat_n(
+            (
+                ring,
+                light_radius,
+                carver_radius,
+                biome_radius,
+                structure_starts_radius,
+            ),
+            self.radius as usize,
+        )
+        .enumerate()
+        .map(
+            |(i, (ring, light_radius, carver_radius, biome_radius, structure_starts_radius))| {
+                (
+                    ring.with_padding(i as u32),
+                    light_radius.with_padding(i as u32),
+                    carver_radius.with_padding(i as u32),
+                    biome_radius.with_padding(i as u32),
+                    structure_starts_radius.with_padding(i as u32),
+                )
+            },
+        )
     }
 }
 impl LoadRequest {
-    fn with_padding(self, padding: u32) -> Self {
+    const fn with_radius(self, radius: u32) -> Self {
         Self {
             origin: self.origin,
-            radius: self.radius + padding,
+            radius,
         }
     }
 }
@@ -182,6 +206,16 @@ struct RingIterator {
     index: usize,
     position: i32,
     radius: u32,
+}
+
+impl RingIterator {
+    fn with_padding(self, padding: u32) -> Self {
+        Self {
+            index: self.index,
+            position: self.position,
+            radius: self.radius + padding,
+        }
+    }
 }
 
 impl From<LoadRequest> for RingIterator {
