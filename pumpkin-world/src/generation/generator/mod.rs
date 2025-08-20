@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::iter;
+use std::iter::{self, Enumerate, Map, RepeatN, repeat_n};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -31,28 +31,6 @@ use crate::{
 
 pub trait GeneratorInit {
     fn new(seed: Seed, dimension: Dimension) -> Self;
-}
-
-struct LoadRequest {
-    origin: i32,
-    radius: u32,
-}
-impl IntoIterator for LoadRequest {
-    type Item = Vector2<i32>;
-
-    type IntoIter = iter::Empty<Vector2<i32>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        todo!()
-    }
-}
-impl LoadRequest {
-    fn with_padding(self, padding: u32) -> Self {
-        Self {
-            origin: self.origin,
-            radius: self.radius + padding,
-        }
-    }
 }
 
 pub trait WorldGenerator {
@@ -161,8 +139,104 @@ impl WorldGenerator for VanillaGenerator {
     }
 }
 
+#[derive(Clone, Copy)]
+struct LoadRequest {
+    origin: i32,
+    radius: u32,
+}
+
+const LIGHT_RADIUS: u32 = 1;
+const CARVER_RADIUS: u32 = LIGHT_RADIUS + 1;
+const BIOME_RADIUS: u32 = CARVER_RADIUS + 1;
+const STRUCTURE_STARTS_RADIUS: u32 = CARVER_RADIUS + 8;
+impl IntoIterator for LoadRequest {
+    type Item = (
+        RingIterator,
+        RingIterator,
+        RingIterator,
+        RingIterator,
+        RingIterator,
+    );
+
+    type IntoIter = Map<Enumerate<RepeatN<Self::Item>>, fn((usize, Self::Item)) -> Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        // These are just vanilla constants
+        let ring = self.with_radius(0).into();
+        let light_radius = self.with_radius(LIGHT_RADIUS).into();
+        let carver_radius = self.with_radius(CARVER_RADIUS).into(); // Terrain shape needs to be complete in order to generate features
+        let biome_radius = self.with_radius(BIOME_RADIUS).into(); // Ishland couldn't find a reason but vanilla does this so ig yes
+        let structure_starts_radius = self.with_radius(STRUCTURE_STARTS_RADIUS).into(); // Chunks need to store a reference to nearby structures
+
+        repeat_n(
+            (
+                ring,
+                light_radius,
+                carver_radius,
+                biome_radius,
+                structure_starts_radius,
+            ),
+            self.radius as usize,
+        )
+        .enumerate()
+        .map(
+            |(i, (ring, light_radius, carver_radius, biome_radius, structure_starts_radius))| {
+                (
+                    ring.with_padding(i as u32),
+                    light_radius.with_padding(i as u32),
+                    carver_radius.with_padding(i as u32),
+                    biome_radius.with_padding(i as u32),
+                    structure_starts_radius.with_padding(i as u32),
+                )
+            },
+        )
+    }
+}
+impl LoadRequest {
+    const fn with_radius(self, radius: u32) -> Self {
+        Self {
+            origin: self.origin,
+            radius,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct RingIterator {
+    index: usize,
+    position: i32,
+    radius: u32,
+}
+
+impl RingIterator {
+    fn with_padding(self, padding: u32) -> Self {
+        Self {
+            index: self.index,
+            position: self.position,
+            radius: self.radius + padding,
+        }
+    }
+}
+
+impl From<LoadRequest> for RingIterator {
+    fn from(value: LoadRequest) -> Self {
+        RingIterator {
+            index: 0,
+            position: value.origin,
+            radius: value.radius,
+        }
+    }
+}
+
+impl Iterator for RingIterator {
+    type Item = Vector2<i32>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
+}
 /// Call in a new thread
-fn initialize_generator(rx: Receiver<LoadRequest>) {
+fn initialize_generator(rx: Receiver<LoadRequest>, generator: impl WorldGenerator, level: ()) {
     let mut queue = VecDeque::new();
 
     let mut poll_countdown = 0;
@@ -175,7 +249,7 @@ fn initialize_generator(rx: Receiver<LoadRequest>) {
         }
         if let Some(mut task) = queue.pop_back() {
             if let Some(work) = task.next() {
-                // Do stuff with y
+                // Do stuff with work
                 queue.push_front(task);
             }
         } else {
