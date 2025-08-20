@@ -232,9 +232,39 @@ impl Iterator for RingIterator {
     type Item = Vector2<i32>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+        if self.index >= self.len() {
+            return None;
+        }
+
+        let r = self.radius;
+        let i = self.index as i32;
+        let side = 2 * r;
+
+        let pos = match i / side {
+            0 => {
+                // top edge (left → right)
+                Vector2::new(-r + i, -r)
+            }
+            1 => {
+                // right edge (top → bottom)
+                Vector2::new(r, -r + (i - side))
+            }
+            2 => {
+                // bottom edge (right → left)
+                Vector2::new(r - (i - 2 * side), r)
+            }
+            3 => {
+                // left edge (bottom → top)
+                Vector2::new(-r, r - (i - 3 * side))
+            }
+            _ => return None,
+        };
+
+        self.index += 1;
+        Some(pos)
     }
 }
+
 /// Call in a new thread
 fn initialize_generator(rx: Receiver<LoadRequest>, generator: impl WorldGenerator, level: ()) {
     let mut queue = VecDeque::new();
