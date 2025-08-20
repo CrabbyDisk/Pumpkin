@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::iter;
+use std::iter::{self, Enumerate, Map, RepeatN, repeat_n};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -31,28 +31,6 @@ use crate::{
 
 pub trait GeneratorInit {
     fn new(seed: Seed, dimension: Dimension) -> Self;
-}
-
-struct LoadRequest {
-    origin: i32,
-    radius: u32,
-}
-impl IntoIterator for LoadRequest {
-    type Item = Vector2<i32>;
-
-    type IntoIter = iter::Empty<Vector2<i32>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        todo!()
-    }
-}
-impl LoadRequest {
-    fn with_padding(self, padding: u32) -> Self {
-        Self {
-            origin: self.origin,
-            radius: self.radius + padding,
-        }
-    }
 }
 
 pub trait WorldGenerator {
@@ -161,8 +139,70 @@ impl WorldGenerator for VanillaGenerator {
     }
 }
 
+#[derive(Clone, Copy)]
+struct LoadRequest {
+    origin: i32,
+    radius: u32,
+}
+impl IntoIterator for LoadRequest {
+    type Item = (
+        RingIterator,
+        RingIterator,
+        RingIterator,
+        RingIterator,
+        RingIterator,
+    );
+
+    type IntoIter = Map<Enumerate<RepeatN<Self::Item>>, fn((usize, Self::Item)) -> Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        // These are just vanilla constants
+        let light_radius = self.with_padding(1); //Light needs to propagate to adjacent chunks
+        let carver_radius = light_radius.with_padding(1); // Terrain shape needs to be complete in order to generate features
+        let biome_radius = carver_radius.with_padding(1); // Ishland couldn't find a reason but vanilla does this so ig yes
+        let structure_starts_radius = biome_radius.with_padding(8); // Chunks need to store a reference to nearby structures
+        let ring = self.into();
+
+        repeat_n((ring, ring, ring, ring, ring), self.radius as usize)
+            .enumerate()
+            .map(|(i, el)| todo!())
+    }
+}
+impl LoadRequest {
+    fn with_padding(self, padding: u32) -> Self {
+        Self {
+            origin: self.origin,
+            radius: self.radius + padding,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct RingIterator {
+    index: usize,
+    position: i32,
+    radius: u32,
+}
+
+impl From<LoadRequest> for RingIterator {
+    fn from(value: LoadRequest) -> Self {
+        RingIterator {
+            index: 0,
+            position: value.origin,
+            radius: value.radius,
+        }
+    }
+}
+
+impl Iterator for RingIterator {
+    type Item = Vector2<i32>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
+}
 /// Call in a new thread
-fn initialize_generator(rx: Receiver<LoadRequest>) {
+fn initialize_generator(rx: Receiver<LoadRequest>, generator: impl WorldGenerator, level: ()) {
     let mut queue = VecDeque::new();
 
     let mut poll_countdown = 0;
@@ -175,7 +215,7 @@ fn initialize_generator(rx: Receiver<LoadRequest>) {
         }
         if let Some(mut task) = queue.pop_back() {
             if let Some(work) = task.next() {
-                // Do stuff with y
+                // Do stuff with work
                 queue.push_front(task);
             }
         } else {
